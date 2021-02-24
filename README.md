@@ -8,7 +8,7 @@ Is exactly like OTP. Use the --build and --save flags.
 
 ## Running
 
-Use the --load flag to load the graph and run the CSV file through the system. Input file must be named OD_TEST.csv and exist in the current working directory (CWD), and have the columns as in the attached file (see test-data). Output will be placed in the CWD as "output.csv".
+Use the --load flag to load the graph and run the CSV file through the system. Input file must be named OD_TEST.csv and exist in the graph root, and have the columns as in the attached file (see test-data). Output will be placed in the graph root as "output.csv".
 
 The "MODE" column is the OTP mode with which to run the request.
 

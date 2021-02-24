@@ -229,15 +229,19 @@ public class OTPMain {
 
         	LOG.info("Reading input CSV...");
         	
-            File outputFile = new File("output.csv");
+        	ArrayList<String> header = null;
+
+        	File outputFile = new File(params.getBaseDirectory().getAbsolutePath() + "/output.csv");
             FileWriter outputStream = new FileWriter(outputFile);
             
-	        try (Scanner scanner = new Scanner(new File("OD_TEST.csv"));) {
-	        	ArrayList<String> header = null;
-	        	
+	        try (Scanner scanner = new Scanner(new File(params.getBaseDirectory().getAbsolutePath() + "/OD_TEST.csv"));) {	        	
 	        	while (scanner.hasNextLine()) {
 	        		if(header == null) {
 	        			header = new ArrayList<String>(getRecordFromLine(scanner.nextLine(), null).values());
+
+	                	outputStream.write(String.join(",",  header) 
+	                			+ ", totalWalkMinutes, totalDriveOrTransitMinutes, totalWaitMinutes\n");
+
 	        			continue;
 	        		}
 	        		
