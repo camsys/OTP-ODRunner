@@ -2,22 +2,45 @@ package org.opentripplanner.standalone;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
+
+import org.opentripplanner.api.resource.PlannerResource;
 import org.opentripplanner.datastore.DataSource;
 import org.opentripplanner.graph_builder.GraphBuilder;
+import org.opentripplanner.model.TransitMode;
+import org.opentripplanner.model.plan.Itinerary;
+import org.opentripplanner.model.plan.TripPlan;
+import org.opentripplanner.routing.RoutingService;
+import org.opentripplanner.routing.api.request.RequestModes;
+import org.opentripplanner.routing.api.request.RoutingRequest;
+import org.opentripplanner.routing.api.request.StreetMode;
+import org.opentripplanner.routing.api.response.RoutingResponse;
 import org.opentripplanner.routing.graph.Graph;
 import org.opentripplanner.routing.graph.SerializedGraphObject;
 import org.opentripplanner.standalone.config.CommandLineParameters;
 import org.opentripplanner.standalone.configure.OTPAppConstruction;
-import org.opentripplanner.standalone.server.GrizzlyServer;
 import org.opentripplanner.standalone.server.Router;
 import org.opentripplanner.util.OtpAppException;
-import org.opentripplanner.util.ThrowableUtils;
 import org.opentripplanner.visualizer.GraphVisualizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.bridge.SLF4JBridgeHandler;
 
 import static org.opentripplanner.model.projectinfo.OtpProjectInfo.projectInfo;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Scanner;
+import java.util.TimeZone;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This is the main entry point to OpenTripPlanner. It allows both building graphs and starting up
@@ -169,11 +192,7 @@ public class OTPMain {
             router.graphVisualizer = new GraphVisualizer(router);
             router.graphVisualizer.run();
         }
-
-        /* Start web server if requested. */
-        // We could start the server first so it can report build/load progress to a load balancer.
-        // This would also avoid the awkward call to set the router on the appConstruction after it's constructed.
-        // However, currently the server runs in a blocking way and waits for shutdown, so has to run last.
+/*
         if (params.doServe()) {
             GrizzlyServer grizzlyServer = app.createGrizzlyServer(router);
             // Loop to restart server on uncaught fatal exceptions.
@@ -188,6 +207,156 @@ public class OTPMain {
                     );
                 }
             }
+        }
+*/        
+        
+        try {
+	        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(100);
+	        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(25, 25, 0L, TimeUnit.MILLISECONDS, queue);
+
+	        // we need our RejectedExecutionHandler to block if the queue is full
+	        threadPool.setRejectedExecutionHandler(new RejectedExecutionHandler() {
+	            @Override
+	            public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+	                try {
+	                     // this will block the producer until there's room in the queue
+	                     executor.getQueue().put(r);
+	                } catch (InterruptedException e) {
+	                     throw new RejectedExecutionException("Unexpected InterruptedException", e);
+	                }
+	            }
+	        });
+
+        	LOG.info("Reading input CSV...");
+        	
+            File outputFile = new File("output.csv");
+            FileWriter outputStream = new FileWriter(outputFile);
+            
+	        try (Scanner scanner = new Scanner(new File("OD_TEST.csv"));) {
+	        	ArrayList<String> header = null;
+	        	
+	        	while (scanner.hasNextLine()) {
+	        		if(header == null) {
+	        			header = new ArrayList<String>(getRecordFromLine(scanner.nextLine(), null).values());
+	        			continue;
+	        		}
+	        		
+	        		threadPool.submit(new ProcessCSVRecord(getRecordFromLine(scanner.nextLine(), header), router, outputStream));
+	            }
+	        }
+        
+        	LOG.info("All records forked to a worker, requesting shutdown of thread pool");	        
+	        threadPool.shutdown();
+
+        	LOG.info("Waiting for threads to finish...");
+	        threadPool.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);       
+
+        	LOG.info("Complete. Syncing results to disk.");        	
+        	outputStream.close();        	
+        } catch (Exception e) {
+        	LOG.error("Exception thrown: " + e);
+        }
+    }
+
+	private static HashMap<String, String> getRecordFromLine(String line, ArrayList<String> header) {
+	    HashMap<String, String> values = new HashMap<String, String>();
+
+        int i = 0;
+	    for(String element : line.split(",")) {
+	    	element = element.trim();
+
+	    	String name = element;
+	        if(header != null) name = header.get(i);
+	        	
+	        values.put(name, element);
+	        i++;
+	    }
+
+	    return values;
+	}
+    
+    private static class ProcessCSVRecord extends PlannerResource implements Runnable {
+    	
+    	RoutingService routingService;
+
+    	Router router;
+
+    	HashMap<String, String> values;
+    	
+    	FileWriter outputStream;
+    	
+    	public ProcessCSVRecord(HashMap<String, String> values, Router router, FileWriter outputStream) {
+    		this.values = values;
+    		this.router = router;
+    		this.routingService = new RoutingService(router.graph);
+    		this.outputStream = outputStream;
+    	}
+
+        public void run() {
+            RoutingRequest request;
+
+            try {
+				request = router.defaultRoutingRequest.clone();
+				
+				request.setFromString("(" + values.get("FY") + "," + values.get("FX") + ")");
+				request.setToString("(" + values.get("TY") + "," + values.get("TX") + ")");
+
+				request.setDateTime("02-23-2021", "16:30:00", TimeZone.getTimeZone("CDT"));
+
+				boolean isTransitRequest = false;
+				if(values.get("MODE").equals("CAR")) {
+					request.modes = new RequestModes(StreetMode.WALK, StreetMode.WALK, StreetMode.CAR, new HashSet<>(
+				            Arrays.asList()));
+					
+					isTransitRequest = false;
+
+				} else if(values.get("MODE").equals("TRANSIT")) {
+					request.modes = new RequestModes(StreetMode.WALK, StreetMode.WALK, StreetMode.WALK, new HashSet<>(
+				            Arrays.asList(TransitMode.values())));
+
+					isTransitRequest = true;
+
+				} else {
+					LOG.error("Unknown mode, skipping record: " + values.get("MODE"));
+					return;
+				}
+				
+				request.setMaxWalkDistance(1600d);
+				request.setWalkReluctance(2d);
+				request.setNumItineraries(1);
+
+	            RoutingResponse res = routingService.route(request, router);
+	            
+	            if (!res.getRoutingErrors().isEmpty()) {
+	            	LOG.error("TP threw error, skipping record: " + res.getRoutingErrors().get(0).code);
+	            	return;
+	            }
+
+	            TripPlan tripPlan = res.getTripPlan();
+	            
+	            if(tripPlan == null || tripPlan.itineraries.isEmpty()) {
+					LOG.error("Trip plan query returned no results; skipping: " + String.join(",",  values.values()));
+	            	return;
+	            }
+	            
+	            Itinerary itin = tripPlan.itineraries.get(0);	            
+
+	            double totalWalkMinutes = 
+	            		(isTransitRequest == false) ? 0 : (itin.nonTransitTimeSeconds / 60);	            
+
+	            double totalDriveOrTransitMinutes = 
+	            		(isTransitRequest == false) ? (itin.nonTransitTimeSeconds / 60) : (itin.transitTimeSeconds / 60);
+	            
+	            double totalWaitMinutes = itin.waitingTimeSeconds / 60;
+	            		            
+	            synchronized(outputStream) {
+	            	outputStream.write(String.join(",",  values.values()) 
+	            			+ "," + totalWalkMinutes + "," + totalDriveOrTransitMinutes + "," + totalWaitMinutes + "\n");
+	          
+	            }
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
         }
     }
 }

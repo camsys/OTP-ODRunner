@@ -629,7 +629,11 @@ public abstract class RoutingResource {
      * @throws ParameterException when there is a problem interpreting a query parameter
      */
     protected RoutingRequest buildRequest() throws ParameterException {
-        Router router = otpServer.getRouter();
+    	Router router = otpServer.getRouter();
+    	return buildRequest(router);
+    }
+
+    protected RoutingRequest buildRequest(Router router) throws ParameterException {
         RoutingRequest request = router.defaultRoutingRequest.clone();
 
         // The routing request should already contain defaults, which are set when it is initialized or in the JSON
