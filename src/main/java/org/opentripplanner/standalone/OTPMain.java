@@ -31,8 +31,9 @@ import java.io.File;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.List;
 import java.util.Scanner;
 import java.util.TimeZone;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -41,6 +42,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * This is the main entry point to OpenTripPlanner. It allows both building graphs and starting up
@@ -211,7 +213,7 @@ public class OTPMain {
 */        
         
         try {
-	        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(100);
+	        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(50);
 	        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(25, 25, 0L, TimeUnit.MILLISECONDS, queue);
 
 	        // we need our RejectedExecutionHandler to block if the queue is full
@@ -229,7 +231,7 @@ public class OTPMain {
 
         	LOG.info("Reading input CSV...");
         	
-        	ArrayList<String> header = null;
+        	List<String> header = null;
 
         	File outputFile = new File(params.getBaseDirectory().getAbsolutePath() + "/output.csv");
             FileWriter outputStream = new FileWriter(outputFile);
@@ -237,8 +239,10 @@ public class OTPMain {
 	        try (Scanner scanner = new Scanner(new File(params.getBaseDirectory().getAbsolutePath() + "/OD_TEST.csv"));) {	        	
 	        	while (scanner.hasNextLine()) {
 	        		if(header == null) {
-	        			header = new ArrayList<String>(getRecordFromLine(scanner.nextLine(), null).values());
+	        			header = Arrays.asList(scanner.nextLine().split(","));
 
+	        			header = header.stream().map(i -> i.trim().replace("\"", "")).collect(Collectors.toList());
+	        			
 	                	outputStream.write(String.join(",",  header) 
 	                			+ ", totalWalkMinutes, totalDriveOrTransitMinutes, totalWaitMinutes\n");
 
@@ -262,14 +266,14 @@ public class OTPMain {
         }
     }
 
-	private static HashMap<String, String> getRecordFromLine(String line, ArrayList<String> header) {
-	    HashMap<String, String> values = new HashMap<String, String>();
+	private static Hashtable<String, String> getRecordFromLine(String line, List<String> header) {
+		Hashtable<String, String> values = new Hashtable<String, String>();
 
         int i = 0;
 	    for(String element : line.split(",")) {
-	    	element = element.trim();
+	    	element = element.trim().replace("\"", "");
 
-	    	String name = element;
+	    	String name = element.trim().replace("\"", "");
 	        if(header != null) name = header.get(i);
 	        	
 	        values.put(name, element);
@@ -281,15 +285,15 @@ public class OTPMain {
     
     private static class ProcessCSVRecord extends PlannerResource implements Runnable {
     	
-    	RoutingService routingService;
+    	private final RoutingService routingService;
 
-    	Router router;
+    	private final Router router;
 
-    	HashMap<String, String> values;
+    	private final Hashtable<String, String> values;
     	
-    	FileWriter outputStream;
+    	private final FileWriter outputStream;
     	
-    	public ProcessCSVRecord(HashMap<String, String> values, Router router, FileWriter outputStream) {
+    	public ProcessCSVRecord(Hashtable<String, String> values, Router router, FileWriter outputStream) {
     		this.values = values;
     		this.router = router;
     		this.routingService = new RoutingService(router.graph);
@@ -325,11 +329,13 @@ public class OTPMain {
 					return;
 				}
 				
-				request.setMaxWalkDistance(1600d);
-				request.setWalkReluctance(2d);
+				if(values.get("MAXWALKDISTANCE") != null)
+					request.setMaxWalkDistance(Double.parseDouble(values.get("MAXWALKDISTANCE")));
+				
 				request.setNumItineraries(1);
 
-	            RoutingResponse res = routingService.route(request, router);
+
+				RoutingResponse res = routingService.route(request, router);
 	            
 	            if (!res.getRoutingErrors().isEmpty()) {
 	            	LOG.error("TP threw error, skipping record: " + res.getRoutingErrors().get(0).code);
@@ -355,8 +361,7 @@ public class OTPMain {
 	            		            
 	            synchronized(outputStream) {
 	            	outputStream.write(String.join(",",  values.values()) 
-	            			+ "," + totalWalkMinutes + "," + totalDriveOrTransitMinutes + "," + totalWaitMinutes + "\n");
-	          
+	            			+ "," + totalWalkMinutes + "," + totalDriveOrTransitMinutes + "," + totalWaitMinutes + "\n");	          
 	            }
 			} catch (Exception e) {
 				e.printStackTrace();

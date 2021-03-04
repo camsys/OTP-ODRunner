@@ -73,10 +73,10 @@ public class DirectStreetRouter {
     // Handle overflow and default setting is set to Double MAX_VALUE
     // Everything above Long.MAX_VALUE is treated as Infinite
     if(limit< 0 || limit > Long.MAX_VALUE) {
-      LOG.warn(
-          "The max walk/bike/car distance is reduced to {} km from Infinite",
-          (long)maxLimit/1000
-      );
+//      LOG.warn(
+//          "The max walk/bike/car distance is reduced to {} km from Infinite",
+//          (long)maxLimit/1000
+//      );
       return maxLimit;
     }
 
