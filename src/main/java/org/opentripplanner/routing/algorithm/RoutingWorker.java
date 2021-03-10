@@ -74,7 +74,7 @@ public class RoutingWorker {
         this.emptyDirectModeHandler = new FilterTransitWhenDirectModeIsEmpty(request.modes);
     }
 
-    public RoutingResponse route(Router router) {
+    public RoutingResponse route(Router router, boolean transitOnly, boolean carOnly) {
         List<Itinerary> itineraries = new ArrayList<>();
         List<RoutingError> routingErrors = new ArrayList<>();
 
@@ -84,32 +84,36 @@ public class RoutingWorker {
 
         this.debugAggregator.finishedPrecalculating();
 
-        // Direct street routing
-        try {
-            itineraries.addAll(DirectStreetRouter.route(router, request));
-        } catch (RoutingValidationException e) {
-            routingErrors.addAll(e.getRoutingErrors());
+        if(carOnly) {
+	        // Direct street routing
+	        try {
+	            itineraries.addAll(DirectStreetRouter.route(router, request));
+	        } catch (RoutingValidationException e) {
+	            routingErrors.addAll(e.getRoutingErrors());
+	        }
         }
 
-        // Direct flex routing
-        if (OTPFeature.FlexRouting.isOn()) {
-            try {
-                itineraries.addAll(DirectFlexRouter.route(request));
-            }
-            catch (RoutingValidationException e) {
-                routingErrors.addAll(e.getRoutingErrors());
-            }
+        if(transitOnly) {
+	        // Direct flex routing
+	        if (OTPFeature.FlexRouting.isOn()) {
+	            try {
+	                itineraries.addAll(DirectFlexRouter.route(request));
+	            }
+	            catch (RoutingValidationException e) {
+	                routingErrors.addAll(e.getRoutingErrors());
+	            }
+	        }
+	
+	        this.debugAggregator.finishedDirectStreetRouter();
+	
+	        // Transit routing
+	        try {
+	            itineraries.addAll(routeTransit(router));
+	        } catch (RoutingValidationException e) {
+	            routingErrors.addAll(e.getRoutingErrors());
+	        }
         }
-
-        this.debugAggregator.finishedDirectStreetRouter();
-
-        // Transit routing
-        try {
-            itineraries.addAll(routeTransit(router));
-        } catch (RoutingValidationException e) {
-            routingErrors.addAll(e.getRoutingErrors());
-        }
-
+        
         this.debugAggregator.finishedTransitRouter();
 
         // Filter itineraries

@@ -51,9 +51,20 @@ public class RoutingService {
     // TODO We should probably not have the Router as a parameter here
     public RoutingResponse route(RoutingRequest request, Router router) {
         RoutingWorker worker = new RoutingWorker(router.raptorConfig, request);
-        return worker.route(router);
+        return worker.route(router, false, false);
     }
 
+    public RoutingResponse routeTransitOnly(RoutingRequest request, Router router) {
+        RoutingWorker worker = new RoutingWorker(router.raptorConfig, request);
+        return worker.route(router, true, false);
+    }
+
+    public RoutingResponse routeCarOnly(RoutingRequest request, Router router) {
+        RoutingWorker worker = new RoutingWorker(router.raptorConfig, request);
+        return worker.route(router, false, true);
+    }
+
+    
     /**
      * Fetch upcoming vehicle departures from a stop. It goes though all patterns passing the stop
      * for the previous, current and next service date. It uses a priority queue to keep track of

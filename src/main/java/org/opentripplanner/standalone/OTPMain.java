@@ -239,12 +239,12 @@ public class OTPMain {
 	        try (Scanner scanner = new Scanner(new File(params.getBaseDirectory().getAbsolutePath() + "/OD_TEST.csv"));) {	        	
 	        	while (scanner.hasNextLine()) {
 	        		if(header == null) {
-	        			header = Arrays.asList(scanner.nextLine().split(","));
-
+	        			String headerAsText = scanner.nextLine();
+	        			header = Arrays.asList(headerAsText.split(","));
 	        			header = header.stream().map(i -> i.trim().replace("\"", "")).collect(Collectors.toList());
 	        			
-	                	outputStream.write(String.join(",",  header) 
-	                			+ ", totalWalkMinutes, totalDriveOrTransitMinutes, totalWaitMinutes\n");
+	                	outputStream.write(headerAsText 
+	                			+ ", totalWalkMinutes, totalDriveOrTransitMinutes, totalWaitMinutes, totalDriveOrTransitDistanceMeters\n");
 
 	        			continue;
 	        		}
@@ -303,12 +303,14 @@ public class OTPMain {
         public void run() {
             RoutingRequest request;
 
+            long start = System.currentTimeMillis();
+            
             try {
 				request = router.defaultRoutingRequest.clone();
 				
 				request.setFromString("(" + values.get("FY") + "," + values.get("FX") + ")");
 				request.setToString("(" + values.get("TY") + "," + values.get("TX") + ")");
-
+				request.ignoreRealtimeUpdates = true;
 				request.setDateTime("02-23-2021", "16:30:00", TimeZone.getTimeZone("CDT"));
 
 				boolean isTransitRequest = false;
@@ -335,8 +337,12 @@ public class OTPMain {
 				request.setNumItineraries(1);
 
 
-				RoutingResponse res = routingService.route(request, router);
-	            
+				RoutingResponse res = null;
+				if(isTransitRequest) 
+					res = routingService.routeTransitOnly(request, router);
+				else
+					res = routingService.routeCarOnly(request, router);
+					
 	            if (!res.getRoutingErrors().isEmpty()) {
 	            	LOG.error("TP threw error, skipping record: " + res.getRoutingErrors().get(0).code);
 	            	return;
@@ -356,14 +362,20 @@ public class OTPMain {
 
 	            double totalDriveOrTransitMinutes = 
 	            		(isTransitRequest == false) ? (itin.nonTransitTimeSeconds / 60) : (itin.transitTimeSeconds / 60);
+
+	            double totalDriveOrTransitDistance = 
+	            		(isTransitRequest == false) ? itin.nonTransitDistanceMeters : itin.nonTransitDistanceMeters;
 	            
 	            double totalWaitMinutes = itin.waitingTimeSeconds / 60;
 	            		            
 	            synchronized(outputStream) {
 	            	outputStream.write(String.join(",",  values.values()) 
-	            			+ "," + totalWalkMinutes + "," + totalDriveOrTransitMinutes + "," + totalWaitMinutes + "\n");	          
+	            			+ "," + totalWalkMinutes + "," + totalDriveOrTransitMinutes + "," + totalWaitMinutes + "," + totalDriveOrTransitDistance + "\n");	          
 	            }
-			} catch (Exception e) {
+	            
+	            System.out.println("Execution time = " + (System.currentTimeMillis() - start) + "ms");
+
+            } catch (Exception e) {
 				e.printStackTrace();
 			}
         }
