@@ -31,6 +31,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.List;
@@ -266,8 +267,8 @@ public class OTPMain {
         }
     }
 
-	private static Hashtable<String, String> getRecordFromLine(String line, List<String> header) {
-		Hashtable<String, String> values = new Hashtable<String, String>();
+	private static HashMap<String, String> getRecordFromLine(String line, List<String> header) {
+		HashMap<String, String> values = new HashMap<String, String>();
 
         int i = 0;
 	    for(String element : line.split(",")) {
@@ -289,11 +290,11 @@ public class OTPMain {
 
     	private final Router router;
 
-    	private final Hashtable<String, String> values;
+    	private final HashMap<String, String> values;
     	
     	private final FileWriter outputStream;
     	
-    	public ProcessCSVRecord(Hashtable<String, String> values, Router router, FileWriter outputStream) {
+    	public ProcessCSVRecord(HashMap<String, String> values, Router router, FileWriter outputStream) {
     		this.values = values;
     		this.router = router;
     		this.routingService = new RoutingService(router.graph);
