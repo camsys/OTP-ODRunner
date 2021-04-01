@@ -3,6 +3,9 @@ package org.opentripplanner.standalone;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
 
+import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
 import org.opentripplanner.api.resource.PlannerResource;
 import org.opentripplanner.datastore.DataSource;
 import org.opentripplanner.graph_builder.GraphBuilder;
@@ -237,7 +240,8 @@ public class OTPMain {
         	File outputFile = new File(params.getBaseDirectory().getAbsolutePath() + "/output.csv");
             FileWriter outputStream = new FileWriter(outputFile);
             
-	        try (Scanner scanner = new Scanner(new File(params.getBaseDirectory().getAbsolutePath() + "/OD_TEST.csv"));) {	        	
+
+            try (Scanner scanner = new Scanner(new File(params.getBaseDirectory().getAbsolutePath() + "/OD_TEST.csv"));) {	        	
 	        	while (scanner.hasNextLine()) {
 	        		if(header == null) {
 	        			String headerAsText = scanner.nextLine();
@@ -245,7 +249,7 @@ public class OTPMain {
 	        			header = header.stream().map(i -> i.trim().replace("\"", "")).collect(Collectors.toList());
 	        			
 	                	outputStream.write(headerAsText 
-	                			+ ", totalWalkMinutes, totalDriveOrTransitMinutes, totalWaitMinutes, totalDriveOrTransitDistanceMeters\n");
+	                			+ ", totalWalkMinutes, totalDriveMinutes, totalTransitMinutes, totalWaitMinutes, totalCarDistance, totalWalkDistance, totalTransitDistance\n");
 
 	        			continue;
 	        		}
@@ -312,7 +316,15 @@ public class OTPMain {
 				request.setFromString("(" + values.get("FY") + "," + values.get("FX") + ")");
 				request.setToString("(" + values.get("TY") + "," + values.get("TX") + ")");
 				request.ignoreRealtimeUpdates = true;
-				request.setDateTime("02-23-2021", "16:30:00", TimeZone.getTimeZone("CDT"));
+				
+				String date = values.get("DATE");
+				String time = values.get("TIME");
+				DateTimeFormatter dateF = DateTimeFormat.forPattern("MM/dd/YYYY HH:mm:ss");				
+				
+				if(date != null && time != null && !date.isBlank() && !time.isBlank())
+					request.setDateTime(dateF.parseDateTime(date + " " + time).toDate());					
+				else 
+					request.setDateTime(dateF.parseDateTime("03/23/2021" + " " + "16:30:00").toDate());					
 
 				boolean isTransitRequest = false;
 				if(values.get("MODE").equals("CAR")) {
@@ -335,6 +347,7 @@ public class OTPMain {
 				if(values.get("MAXWALKDISTANCE") != null)
 					request.setMaxWalkDistance(Double.parseDouble(values.get("MAXWALKDISTANCE")));
 				
+
 				request.setNumItineraries(1);
 
 
@@ -358,20 +371,35 @@ public class OTPMain {
 	            
 	            Itinerary itin = tripPlan.itineraries.get(0);	            
 
-	            double totalWalkMinutes = 
-	            		(isTransitRequest == false) ? 0 : (itin.nonTransitTimeSeconds / 60);	            
-
-	            double totalDriveOrTransitMinutes = 
-	            		(isTransitRequest == false) ? (itin.nonTransitTimeSeconds / 60) : (itin.transitTimeSeconds / 60);
-
-	            double totalDriveOrTransitDistance = 
-	            		(isTransitRequest == false) ? itin.nonTransitDistanceMeters : itin.nonTransitDistanceMeters;
+	            long totalWalkMinutes = itin.legs.stream()
+	            		.filter(it -> it.mode.isWalking() == true)
+	            		.mapToLong(it -> it.getDuration()).sum();
+	            	
+	            long totalDriveMinutes = itin.legs.stream()
+	            		.filter(it -> it.mode.isDriving() == true)
+	            		.mapToLong(it -> it.getDuration()).sum();
 	            
-	            double totalWaitMinutes = itin.waitingTimeSeconds / 60;
-	            		            
+	            long totalTransitMinutes = itin.legs.stream()
+	            		.filter(it -> it.mode.isTransit() == true)
+	            		.mapToLong(it -> it.getDuration()).sum();
+
+	            long totalWaitMinutes = itin.waitingTimeSeconds / 60;
+	            
+	            double totalWalkDistance = itin.legs.stream()
+	            		.filter(it -> it.mode.isWalking() == true)
+	            		.mapToDouble(it -> it.distanceMeters).sum();
+	            	
+	            double totalDriveDistance = itin.legs.stream()
+	            		.filter(it -> it.mode.isDriving() == true)
+	            		.mapToDouble(it -> it.distanceMeters).sum();
+	            
+	            double totalTransitDistance = itin.legs.stream()
+	            		.filter(it -> it.mode.isTransit() == true)
+	            		.mapToDouble(it -> it.distanceMeters).sum();
+
 	            synchronized(outputStream) {
 	            	outputStream.write(String.join(",",  values.values()) 
-	            			+ "," + totalWalkMinutes + "," + totalDriveOrTransitMinutes + "," + totalWaitMinutes + "," + totalDriveOrTransitDistance + "\n");	          
+	            			+ "," + totalWalkMinutes + "," + totalDriveMinutes + "," + totalTransitMinutes + "," + totalWaitMinutes + "," + totalDriveDistance + "," + totalWalkDistance + "," + totalTransitDistance + "\n");	          
 	            }
 	            
 	            System.out.println("Execution time = " + (System.currentTimeMillis() - start) + "ms");
